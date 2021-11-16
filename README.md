@@ -1,4 +1,4 @@
-# temporal_serie_prediction
+# Temporal_serie_prediction
 
 Project for the Statistics and Optimization subject of the Master in Data Science. The main objective of the project is to perform an analysis of a time serie and be able to do a prediction.
 
