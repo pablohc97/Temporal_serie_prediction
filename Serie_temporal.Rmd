@@ -1,0 +1,373 @@
+---
+title: "Serie_temporal_Pablo"
+author: "Pablo Hernandez Camara"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librerias
+
+En primer lugar, cargamos las librerias necesarias para analizar la serie temporal:
+
+```{r}
+library(readr)
+library(forecast)
+```
+
+## Carga y visualizacion de los datos
+
+Leemos el archivo csv con el gasto total de los turistas extrangeros en la comunidad valenciana descargado de <https://www.epdata.es/datos/turistas-internacionales-comunidad-autonoma/68/comunidad-valenciana/299>:
+
+```{r}
+Data <- read.csv(file="./Datos/gasto_total_de_los_turist.csv",header=TRUE,sep=";")
+```
+
+Realizaremos el ajuste utilizando los datos de entre Mayo del 2012 (cuando empieza la serie) y 2018, dejando los datos de 2019 y 2020 para calcular unas predicciones y poder comparar con ellos:
+
+```{r}
+# Datos mensuales del gasto total de turistas extrangeros entre Mayo de 2012 y Diciembre de 2018:
+insample <- ts(Data[1:80,3],start=c(2012,5),frequency=12)
+
+# Datos mensuales del gasto total de turistas extrangeros en 2019 y en 2019-2020:
+outsample_2019 <- ts(Data[82:93,3],start=c(2019,1),frequency=12)
+outsample_20192020 <- ts(Data[82:100, 3],start=c(2019,1),frequency=12)
+
+# Grafico de la serie temporal que usaremos para realizar el ajuste
+plot(insample, xlab = 'Año', ylab = 'Gasto total (millones de euros)', type = 'o', pch = 20)
+
+#Grafico de la serie temporal  de 2019 que intentaremos predecir mediante nuestro modelo
+plot(outsample_2019, xlab = 'Año', ylab = 'Gasto total (millones de euros)', type = 'o', pch = 20)
+
+#Grafico de la serie temporal  de 2020 que intentaremos predecir mediante nuestro modelo
+plot(outsample_20192020, xlab = 'Año', ylab = 'Gasto total (millones de euros)', type = 'o', pch = 20)
+```
+
+A primera vista en el grafico temporal observamos que existe una clara tendencia ascendente, es decir la media de los datos  va aumentando con el paso de los años. En cuanto a la varianza, se observa como va aumentando, es decir, a priori podemos suponer que se trata de un esquema multiplicativo. Por otro lado, se observa una clara estacionalidad (comportamiento ciclico repetido cada año). Realizamos un grafico de cajas para observar mejor la estacionalidad:
+
+```{r}
+# Creamos un factor con los meses del año
+mesord <- factor(Data[1:80,2], levels = c('Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'))
+boxplot(Data[1:80,3] ~ mesord, xlab = 'Mes', ylab = 'Gasto total (millones de euros)')
+```
+
+Se observa claramente que los meses de verano hay mucha mas variabilidad que el resto del año (el rango intercuartilico es mayor) y la estacionalidad, que alcanza el maximo sobre los meses de Junio y Julio.
+
+## Descomposicion de la serie temporal
+
+Por todo lo visto anteriormente, que la serie tiene tendencia, estacionalidad y heterocedasticidad, hemos deducido que probablemente se trate de una serie multiplicativa y a continuacion la descompondremos en sus componentes: tendencia, estacionalidad y ruido:
+
+```{r}
+comp <- decompose(insample, type="multiplicative")
+plot(comp, xlab = 'Año')
+```
+
+La descomposicion de la serie nos permite ver lo que habiamos deducido del grafico temporal: la serie tiene tendencia y estacionalidad.
+
+## Coeficientes de variacion
+
+Para analizar de forma exacta si se trata de una serie con esquema aditivo o multiplicativo calculamos los coeficientes de variacion. En primer lugar hacemos las diferencias absolutas entre los datos:
+
+```{r}
+diferencia_absoluta <- diff(insample)
+diferencia_absoluta
+```
+
+A continuacion calculamos las diferencias relativas:
+
+```{r}
+diferencia_relativa <- diferencia_absoluta
+for (i in 2:length(diferencia_relativa)){
+  diferencia_relativa[i-1] <- insample[i]/insample[i-1]}
+diferencia_relativa
+```
+
+Y calculamos los coeficientes de variacion para las diferencias absolutas y relativas:
+
+```{r}
+cv_diferencia_absoluta <- sd(diferencia_absoluta)/mean(diferencia_absoluta)
+cv_diferencia_relativa <- sd(diferencia_relativa)/mean(diferencia_relativa)
+cv_diferencia_relativa < cv_diferencia_absoluta # gana el multiplicativo
+```
+
+Como en este caso, el coeficiente de variacion de las diferencias absolutas es mayor que el coeficiente de variacion de las diferencias relativas concluimos que tal y como habiamos supuesto la serie sigue un esquema multiplicativo.
+
+## Analisis de la serie mediante suavizado exponencial
+
+Por lo visto anteriormente, presenta tendencia y estacionalidad, el metodo adecuado para su analisis es el metodo de Holt-Winters. Aunque hemos calculado que la serie sigue un esquema multiplicativo, realizaremos el ajuste usando el metodo de Holt-Winters aditivo tambien, para ver si el ajuste fuera mas preciso.
+
+### Analisis con Holt-Winters aditivo
+
+Realizamos el ajuste mediante la funcion hw asumiendo una estacionalidad aditiva con un periodo anual (12 meses):
+
+```{r}
+fit_gasto <- hw(insample,h=12,seasonal="additive")
+fit_gasto$model 
+```
+
+Este modelo aditivo asume que la observacion en un instante $x, x_{t}$ se describe como: 
+$$\hat x_{t} = L_{t-1} + T_{t-1} + S_{t-c}$$
+Partiendo de unas condiciones iniciales (en t = 0), el nivel, la tendencia y la componente estacional se actualizan en cada instante t teniendo en cuenta la observación xt. En este ejemplo, las ecuaciones de actualización son:
+$$L_{t} = 0.8542 (x_{t} - S_{t-12}) + (1-0.7218)(L_{t-1} + T_{t-1})$$
+$$T_{t} = 0.0001 (L_{t} - L_{t-1}) + (1-0.0085)T_{t-1}$$
+$$S_{t} = 0.0002 (x_{t} - L_{t}) + (1-0.0001)S_{t-12}$$
+Y en este caso las condiciones iniciales son: 
+$$L_{0} = 367.2688$$
+$$T_{0} = 5.4342$$ 
+$$(S_{-11}, S_{-10}, S_{-9}, S_{-8}, S_{-7}, S_{-6}, S_{-5}, S_{-4}, S_{-3}, S_{-2}, S_{-1}, S_{0}) = (-40.1509, -129.7777, -241.9864, -243.1255, -228.2577, -227.2252, 39.35, 162.0713, 436.1757, 373.8142, 74.8907, 24.2215)$$
+
+A continuacion, representamos la serie real (en rojo) junto con la serie estimada mediante dicho metodo (en azul) para valorar el resultado del ajuste obtenido:
+
+```{r}
+fitval <- fit_gasto$fitted # serie de valores ajustados
+plot(fitval,col="blue",ylab="Gasto total (millones de euros)", xlab = 'Año')
+lines(insample, col = 'red')
+```
+
+Calculamos tambien la raiz del error cuadratico medio y del error absoluto porcentual medio para tener un valor numerico de la bondad del ajuste:
+
+```{r}
+rmse <- sqrt(mean((insample-fitval)^2))
+mape <- 100*mean(abs(insample-fitval)/insample)
+rmse
+mape
+```
+
+### Analisis con Holt-Winters multiplicativo
+
+A continuacion realizamos el ajuste mediante el metodo Holt-Winters pero considerando un esquema multiplicativo, que es el que habiamos obtenido del analisis de los coeficientes de variacion. Para ello, hemos de aplicar la transformacion logaritmica a la serie y posteriormente aplicar el mismo procedimiento que antes pero con la nueva serie transformada.
+
+```{r}
+loginsample <- log(insample) # Serie transformada
+
+fitlog_gasto <- hw(loginsample,h=12,seasonal="additive")
+fitlog_gasto$model # Vemos el modelo ajustado
+```
+
+A continuacion, representamos la serie original (rojo) y el ajuste obtenido (azul):
+
+```{r}
+fitlogval <- fitlog_gasto$fitted # serie de valores ajustados
+plot(fitlogval,col="blue",ylab="Log(Gasto total)", xlab = 'Año')
+lines(loginsample, col = 'red')
+```
+
+Valoramos la bondad del ajuste mediante los siguientes valores estadisticos:
+
+```{r}
+rmse <- sqrt(mean((loginsample-fitlogval)^2))
+mape <- 100*mean(abs(loginsample-fitlogval)/loginsample)
+rmse
+mape
+```
+
+Como vemos dichos estadisticos que nos indican la bondad del ajuste son mucho mejores en el caso del esquema multiplicativo que en el aditivo, lo cual tiene sentido ya que es el esquema que habiamos calculado que sigue la serie mediante los coeficientes de variacion. Por lo tanto, el esquema multiplicativo es el que usaremos para realizar las predicciones de 2019 y 2019-2020.
+
+## Prediccion 2019
+
+Como hemos comentado anteriormente usaremos el ajuste obtenido para hacer una prediccion de los valores de 2019:
+
+```{r}
+fitlog_gasto
+plot(fitlog_gasto, ylab = 'Log(Gasto total)', xlab = 'Año')
+```
+
+Las predicciones puntuales en la escala original podemos calcularlas realizando la transformación inversa (exponencial):
+
+```{r}
+pred <- exp(fitlog_gasto$mean)
+pred
+```
+
+Representamos graficamente los datos reales de 2019 (puntos negros) junto con las predicciones realizadas por el ajuste (linea azul):
+
+```{r}
+plot(pred,type="l",col="blue",xlab="Año", ylab = 'Gasto total (millones de euros)')
+points(outsample_2019,pch=19)
+```
+
+A continuacion, calculamos la diferencia entre los valores reales y las predicciones:
+
+```{r}
+diferencia_2019 <- outsample_2019 - pred
+diferencia_2019
+print(sum(diferencia_2019))
+```
+
+Por lo tanto, vemos que nuestro modelo ha predecido que en 2019 se iban a gasta 349.25 millones mas de los que se gastaron en realidad. Gracias a la grafica de las predicciones y los valores reales de 2019 observamos que nuestro ajuste predice que el gasto se produce un poco mas tarde que los meses en los que en realidad sucede, es decir, el ajuste predice el maximo gasto los meses de Julio Y Agosto cuando en realidad en 2019 el maximo gasto se produjo los meses de Junio y Julio. Ademas, predice menos gasto del que sucede (subestima) durante la primera mitad del año y mas del gasto real (sobreestima) durante la segunda mitad.
+
+
+## Prediccion 2019-2020
+Como en el caso anterior, utilizamos el esquema multiplicativo ya que segun lo obtenido previamente con el que se obtiene el mejor ajuste. Repetimos el proceso, pero ahora predecimos 19 meses, es decir, 2019 y 2020 (hasta donde se dispone de datos:
+
+```{r}
+loginsample <- log(insample) # Serie transformada
+
+fitlog_gasto <- hw(loginsample,h=19,seasonal="additive")
+#fitlog_gasto$model
+
+fitlogval <- fitlog_gasto$fitted # serie de valores ajustados
+
+fitlog_gasto
+plot(fitlog_gasto, ylab = 'Log(Gasto total)', xlab = 'Año')
+```
+
+Las predicciones puntuales en la escala original podemos calcularlas, al igual que antes, realizando la transformación inversa (exponencial):
+
+```{r}
+pred <- exp(fitlog_gasto$mean)
+pred
+```
+
+Representamos graficamente los datos reales de 2019 (puntos negros) junto con las predicciones realizadas por el ajuste (linea azul):
+
+```{r}
+plot(pred,type="l",col="blue",xlab="Año", ylab = 'Gasto total (millones de euros)', ylim=c(0,1700))
+points(outsample_20192020,pch=19)
+```
+
+Igual que hemos hecho para la prediccion de 2019, calculamos las diferencias entre la prediccion del modelo y los datos reales:
+
+```{r}
+diferencia_20192020 <- outsample_20192020 - pred
+diferencia_20192020
+print(sum(diferencia_20192020))
+```
+
+Como vemos en este caso el modelo ha predicho un gasto entre 2019 - Julio 2020 de 4831.67 millones mayor del que se ha producido en realidad segun los datos. Esto es debido al Covid-19, ya que la pandemia y el confinamiento durante los meses de Marzo, Abril y Mayo ha supuesto que el gasto realizado durante estos meses sea practicamente 0, cosa que el modelo obviamente no es capaz de predecir.
+
+## Analisis mediante metodologia de Box-Jenkins
+
+Dada nuestra serie que presenta estacionalidad y tendencia en primer hemos de obtener la serie estacionaria. En primer lugar quitamos la heterocedasticidad mediante el logaritmo y la tendencia diferenciando una vez ($d = 1$):
+
+```{r}
+dlinsample <- diff(log(insample))
+plot(dlinsample, xlab = 'Año')
+```
+
+Como vemos, hemos eliminado la heterocedasticidad y la tendencia, pero seguimos teniendo presente la estacionalidad, que se puede observar claramente en la funcion de autocorrelacion:
+
+```{r}
+acf(dlinsample, 50)
+```
+
+Eliminamos la estacionalidad, diferenciando con un periodo de $s = 12$ meses y, por lo tanto, $D = 1$:
+
+```{r}
+ddlinsample <- diff(dlinsample, 12)
+plot(ddlinsample)
+```
+
+Para elegir los valores p, q, P y Q representamos las funciones de autorcorrelacion y de autocorrelacion parcial:
+
+```{r}
+acf(ddlinsample, 50)
+pacf(ddlinsample, 50)
+```
+
+Para la parte regular, de los primeros palos de ACF deducimos que $q = 0$, ya que tarda en llegar a 0. No obstante, no es descartable el caso $q = 1$ o incluso $q = 2$. De los primeros palos de PACF obtenemos que $p = 0$. En cuanto a la parte estacionaria, observando los palos correspondientes a s, 2s, 3s, 4s... en ACF y en PACF obtenemos que $P = 0$ y $Q = 0$ ya que en ambos casos decrece lentamente. Por lo tanto, segun nuestro analisis visual tendriamos un modelo ARIMA con $(p, d, q) = (0, 1, 0-2)$ y $(P, D, Q) = (0, 1, 0)$.
+
+Para calcular que valor de q es el correcto, realizamos el ajuste para los distintos valores y obetenemos la bondad de cada ajuste.
+
+Del modelo 1 (con $q = 0$) obtenemos:
+
+```{r}
+#Model 1: p = 0, d = 1, q = 0, P = 0, D = 1, Q = 0
+library(astsa)
+model1 <- sarima(log(insample), 0, 1, 0, 0, 1, 0, 12)
+model1$AIC
+```
+
+Del modelo 2 (con $q = 1$) obtenemos:
+
+```{r}
+#Model 2: p = 0, d = 1, q = 1, P = 0, D = 1, Q = 0
+model2 <- sarima(log(insample), 0, 1, 1, 0, 1, 0, 12)
+model2$ttable
+model2$AIC
+```
+
+Del modelo 3 (con $q = 2$) obtenemos:
+
+```{r}
+#Model 3: p = 0, d = 1, q = 2, P = 0, D = 1, Q = 0
+model3 <- sarima(log(insample), 0, 1, 2, 0, 1, 0, 12)
+model3$ttable
+model3$AIC
+```
+
+Como para los modelos 1 y 3 obtenemos un AIC mayor que para el modelo 2 directamente los descartamos y nos quedamos con el modelo 2, que ademas tiene un p-valor de 0. Dicho modelo tiene los siguientes parametros:$(p, d, q) = (0, 1, 1)$ y $(P, D, Q) = (0, 1, 0)$
+
+
+## Prediccion 2019
+
+A continuacion realizamos la prediccion para el año 2019 mediante el modelo que acabamos de calcular, el cual corresponde con ARIMA(0,1,1)x(0,1,0)s=12:
+
+```{r}
+logpred <- sarima.for(log(insample), 12, 0, 1, 1, 0, 1, 0, 12)
+logpred$pred
+```
+
+Para obtener los valores reales y no el log de ellos calculamos la exponencial:
+
+```{r}
+predict <- exp(logpred$pred)
+predict
+```
+
+Representamos graficamente los datos reales de 2019 (puntos negros) junto con las predicciones realizadas por el ajuste (linea azul):
+
+```{r}
+plot(predict,type="l",col="blue",xlab="Año", ylab = 'Gasto total (millones de euros)')
+points(outsample_2019,pch=19)
+```
+
+```{r}
+diferencia_2_2019 <- outsample_2019 - predict
+diferencia_2_2019
+print(sum(diferencia_2_2019))
+```
+
+Por lo tanto, vemos que nuestro modelo ha predecido que en 2019 se iban a gasta 153.57 millones mas de los que se gastaron en realidad. Gracias a la grafica de las predicciones y los valores reales de 2019 observamos que nuestro ajuste predice que un gasto menor del realizado durante la primera mitad del año y mayor del realizado durante la segunda mitad. Ademas, el pico del maximo se prevee para un mes mas tarde de cuando sucede en realidad.
+
+## Prediccion 2019-2020
+
+A continuacion realizamos la prediccion para el año 2019-2020 mediante el modelo que acabamos de calcular, el cual corresponde con ARIMA(0,1,1)x(0,1,0)s=12:
+
+```{r}
+logpred_2020 <- sarima.for(log(insample), 19, 0, 1, 1, 0, 1, 0, 12)
+logpred_2020$pred
+```
+
+Para obtener los valores reales y no el log de ellos calculamos la exponencial:
+
+```{r}
+predict_2020 <- exp(logpred_2020$pred)
+predict_2020
+```
+
+Representamos graficamente los datos reales de 2019 (puntos negros) junto con las predicciones realizadas por el ajuste (linea azul):
+
+```{r}
+plot(predict_2020,type="l",col="blue",xlab="Año", ylab = 'Gasto total (millones de euros)', ylim=c(0,1700))
+points(outsample_20192020,pch=19)
+```
+
+```{r}
+diferencia_2_2020 <- outsample_20192020 - predict_2020
+diferencia_2_2020
+print(sum(diferencia_2_2020))
+```
+
+Como vemos en este caso el modelo ha predicho un gasto entre 2019 - Julio 2020 de 4546.18 millones mayor del que se ha producido en realidad segun los datos. Esto es debido al Covid-19, ya que la pandemia y el confinamiento durante los meses de Marzo, Abril y Mayo ha supuesto que el gasto realizado durante estos meses sea practicamente 0, cosa que el modelo obviamente no es capaz de predecir.
+
+## Conclusiones
+
+Como podemos observar, el ajuste mediante el modelo ARIMA es mejor que mediante el suavizado exponencial. Para la prediccion del año 2019, el modelo ARIMA predice un gasto 154 millones mayor que el que se produjo en realidad, mientras que mediante el suavizado exponencial esa diferencia en la prediccion aumenta hasta los 349 millones. Para el caso de 2019-Julio 2020 es obvio que ambos modelos van a fallar debido a la situacion mundial provocada por la pandemia del Covid-19 que desde Marzo redujo practicamente a cero el numero de turistas. No obstante, tambien en este caso la prediccion del modelo ARIMA se aleja menos de las cifras reales que la prediccion del modelo realizado con el suavizado exponencial.
