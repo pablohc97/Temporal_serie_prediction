@@ -4,9 +4,9 @@ Project for the Statistics and Optimization subject of the Master in Data Scienc
 
 ## Serie
 
-The series analyzed corresponds with the total spendings of foreign tourists in the Valencian Community, Spain. It can be downloaded from [here](https://www.epdata.es/datos/turistas-internacionales-comunidad-autonoma/68/comunidad-valenciana/299).
+The series analyzed corresponds with the total spendings of foreign tourists in the Valencian Community, Spain, and it can be downloaded from [here](https://www.epdata.es/datos/turistas-internacionales-comunidad-autonoma/68/comunidad-valenciana/299).
 
 ## Analysis and predictions
 
-Different methodologies will be used, such as the Box-Jenkins or the Exponential smoothing. For the predictions, different options will be considered too. For example with Holt−Winters' additive method or fitting and ARIMA model to predict.
+Different methodologies are used, such as the Box-Jenkins or the Exponential smoothing. For the predictions, different options are considered too. For example with Holt−Winters' additive method or fitting and ARIMA model to predict.
 
